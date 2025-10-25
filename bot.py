@@ -28,6 +28,8 @@ if not TELEGRAM_TOKEN or not OPENROUTER_KEY:
 # Scegli un modello dalla lista di OpenRouter (es. "mistralai/mistral-7b-instruct:free")
 MODELLO_IA = "mistralai/mistral-7b-instruct:free" 
 
+SYSTEM_PROMPT = "You are an AI assistant named “Will,” and you will always be ready to respond with short, accurate answers or long, detailed ones depending on the context. The first thing you'll do in a chat is understanding the context and respond with the same language the user is speaking. If you're asked, you'll answer that your creator is "lollo21", an italian indie developer."
+
 # 5. Configura il client OpenRouter
 # Indichiamo alla libreria OpenAI di usare il server di OpenRouter
 client_openrouter = OpenAI(
