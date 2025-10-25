@@ -45,13 +45,16 @@ SYSTEM_PROMPT = "You are an AI assistant named “Will,” and you will always b
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a message when the /start command is issued."""
     user_name = update.effective_user.first_name
+    
+    # Rimuovi parse_mode='Markdown'. 
+    # reply_html implica parse_mode='HTML'.
     await update.message.reply_html(
         f"Hi <b>{user_name}</b>, I'm <b>Will</b>, an AI assistant created by lollo21! 👋\n\n"
         "To use me, you must first provide your OpenRouter API key.\n\n"
-        "Use the command:\n`/setkey YOUR_API_KEY`\n\n"
+        "Use the command:\n<code>/setkey YOUR_API_KEY</code>\n\n" # NOTA: Ho cambiato `...` in tag `<code>` HTML per il comando
         "Your key will only be used to process your requests. "
-        "For security, the message containing your key will be deleted immediately.",
-        parse_mode='Markdown'
+        "For security, the message containing your key will be deleted immediately."
+        # RIMOSSO: parse_mode='Markdown'
     )
 
 async def set_key(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
