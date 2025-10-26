@@ -151,7 +151,11 @@ async def telegram_webhook(request: Request):
 # --- Startup & shutdown ---
 @app.on_event("startup")
 async def startup():
-    # Set webhook URL dynamically from environment
+    # inizializza manualmente il bot
+    await application.initialize()
+    await application.start()
+
+    # setta il webhook
     render_url = os.getenv("RENDER_EXTERNAL_URL")
     if not render_url:
         logger.warning("⚠️ No RENDER_EXTERNAL_URL found. Webhook not set automatically.")
@@ -162,9 +166,11 @@ async def startup():
 
 @app.on_event("shutdown")
 async def shutdown():
-    await application.bot.delete_webhook()
+    await application.stop()
+    await application.shutdown()
+    logger.info("🛑 Bot stopped and shutdown cleanly.")
 
-# --- Run ---
+# --- Run server ---
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     uvicorn.run(app, host="0.0.0.0", port=port)
