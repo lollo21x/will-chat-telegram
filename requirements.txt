@@ -1,6 +1,6 @@
-python-telegram-bot
+python-telegram-bot[job-queue]
 openai
 python-dotenv
 fastapi
-uvicorn
+uvicorn[standard]
 requests
