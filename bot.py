@@ -8,14 +8,14 @@ from telegram.ext import (
     MessageHandler,
     ContextTypes,
     PicklePersistence,
-    filters,
+    filters,  # Corretta importazione
 )
 from telegram.constants import ChatAction
 from openai import OpenAI
 from fastapi import FastAPI, Request
 import uvicorn
 
-# --- Initial Setup ---
+# --- 1. Initial Setup ---
 load_dotenv()
 
 logging.basicConfig(
@@ -23,9 +23,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# --- 2. Configuration ---
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_TOKEN:
-    raise ValueError("Telegram Token not found. Make sure it's in the .env file")
+    raise ValueError("Telegram Token not found. Make sure it's in your environment variables.")
 
 MODELLO_IA = "mistralai/mistral-small-3.2-24b-instruct:free"
 SYSTEM_PROMPT = (
@@ -36,10 +37,13 @@ SYSTEM_PROMPT = (
     "that your creator is lollo21, an italian indie developer."
 )
 
-# --- FastAPI app setup ---
-app = FastAPI()
+# Porta fornita dall'ambiente di hosting (Railway, Render, etc.)
+PORT = int(os.environ.get("PORT", 8080))
+# URL pubblico del tuo servizio (DEVI IMPOSTARLO NELLE VARIABILI D'AMBIENTE)
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
-# --- Telegram App setup (shared instance) ---
+
+# --- 3. Telegram Bot Setup ---
 persistence = PicklePersistence(filepath="bot_persistence.pickle")
 application = (
     Application.builder()
@@ -48,9 +52,10 @@ application = (
     .build()
 )
 
-# --- Handlers ---
+# --- 4. Telegram Handlers ---
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Gestisce il comando /start (con formattazione HTML corretta)"""
     user_name = update.effective_user.first_name
     await update.message.reply_html(
         f"Hi <b>{user_name}</b>, I'm <b>Will</b>, an AI assistant created by lollo21! 👋\n\n"
@@ -61,6 +66,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 async def set_key(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Salva la chiave API dell'utente"""
     user_id = update.effective_user.id
     if not context.args:
         await update.message.reply_text("Error: You must provide a key.\nUsage: /setkey <your_api_key>")
@@ -85,6 +91,7 @@ async def set_key(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
 
 async def my_key(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Mostra uno snippet della chiave salvata"""
     if "api_key" in context.user_data:
         key_preview = context.user_data["api_key"][:4] + "..." + context.user_data["api_key"][-4:]
         await update.message.reply_text(f"You have an API key set: `{key_preview}`", parse_mode="Markdown")
@@ -92,6 +99,7 @@ async def my_key(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("You haven't set an API key yet. Use /setkey <your_key>.")
 
 async def del_key(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Rimuove la chiave API"""
     if "api_key" in context.user_data:
         del context.user_data["api_key"]
         await update.message.reply_text("🗑️ Your API key has been removed.")
@@ -99,12 +107,17 @@ async def del_key(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("You don't have an API key to remove.")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Gestisce tutti i messaggi di testo"""
     if "api_key" not in context.user_data:
         await update.message.reply_text(
             "You must set your OpenRouter API key first. Use the command: /setkey <your_api_key>"
         )
         return
 
+    # Evita di processare i messaggi se non sono di testo
+    if not update.message or not update.message.text:
+        return
+        
     user_text = update.message.text
     chat_id = update.message.chat_id
     user_key = context.user_data["api_key"]
@@ -126,6 +139,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     except Exception as e:
         logger.error(f"Error calling OpenRouter for user {update.effective_user.id}: {e}")
+        # Corretta indentazione del blocco exception
         if "Incorrect API key" in str(e):
             await update.message.reply_text(
                 "😔 Your OpenRouter API key seems to be incorrect or invalid. Please try again with /setkey"
@@ -133,44 +147,65 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         else:
             await update.message.reply_text("😔 Sorry, an error occurred. Please try again later.")
 
-# --- Register handlers ---
+# --- 5. Registra gli Handlers ---
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("setkey", set_key))
 application.add_handler(CommandHandler("mykey", my_key))
 application.add_handler(CommandHandler("delkey", del_key))
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-# --- Webhook endpoint ---
-@app.post(f"/{TELEGRAM_TOKEN}")
-async def telegram_webhook(request: Request):
-    data = await request.json()
-    update = Update.de_json(data, application.bot)
-    await application.process_update(update)
-    return {"ok": True}
 
-# --- Startup & shutdown ---
+# --- 6. FastAPI Server Setup ---
+app = FastAPI()
+
 @app.on_event("startup")
-async def startup():
-    # inizializza manualmente il bot
+async def startup_event():
+    """All'avvio, inizializza il bot e imposta il webhook."""
     await application.initialize()
+    
+    if not WEBHOOK_URL:
+        logger.error("WEBHOOK_URL not set. Bot will not be able to receive messages.")
+        return
+
+    # Imposta il webhook
+    webhook_path = f"/{TELEGRAM_TOKEN}"
+    await application.bot.set_webhook(url=f"{WEBHOOK_URL}{webhook_path}")
+    logger.info(f"Webhook set successfully to {WEBHOOK_URL}{webhook_path}")
+    
+    # Avvia l'applicazione PTB (necessario per far funzionare i job, etc.)
     await application.start()
 
-    # setta il webhook
-    render_url = os.getenv("RENDER_EXTERNAL_URL")
-    if not render_url:
-        logger.warning("⚠️ No RENDER_EXTERNAL_URL found. Webhook not set automatically.")
-        return
-    webhook_url = f"{render_url}/{TELEGRAM_TOKEN}"
-    await application.bot.set_webhook(webhook_url)
-    logger.info(f"✅ Webhook set to: {webhook_url}")
-
 @app.on_event("shutdown")
-async def shutdown():
+async def shutdown_event():
+    """Alla chiusura, ferma il bot e rimuovi il webhook."""
+    logger.info("Shutting down bot...")
     await application.stop()
+    await application.bot.delete_webhook()
     await application.shutdown()
-    logger.info("🛑 Bot stopped and shutdown cleanly.")
+    logger.info("Bot shutdown complete.")
 
-# --- Run server ---
+@app.post("/{token}")
+async def telegram_webhook(token: str, request: Request):
+    """Gestisce gli update in arrivo da Telegram."""
+    if token != TELEGRAM_TOKEN:
+        return {"status": "error", "message": "Invalid token"}
+
+    try:
+        data = await request.json()
+        update = Update.de_json(data, application.bot)
+        await application.process_update(update)
+        return {"status": "ok"}
+    except Exception as e:
+        logger.error(f"Error processing update: {e}")
+        return {"status": "error"}
+
+@app.get("/")
+async def health_check():
+    """Un semplice endpoint per controllare che il server sia vivo."""
+    return {"status": "ok", "bot_name": "Will AI Bot"}
+
+# --- 7. Run Server (solo per test locale) ---
+# Quando deployato, Railway/Render useranno un comando Uvicorn diverso.
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    logger.info(f"Starting server locally on port {PORT}...")
+    uvicorn.run(app, host="0.0.0.0", port=PORT)
